@@ -1,0 +1,54 @@
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from typing import Any, Dict, Optional
+
+from dotenv import load_dotenv
+import yaml
+
+
+# Load .env from project root, if present
+load_dotenv()
+
+
+def _getenv_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.lower() in {"1", "true", "yes", "on"}
+
+
+@dataclass
+class Settings:
+    app_env: str = os.getenv("APP_ENV", "development")
+    log_level: str = os.getenv("LOG_LEVEL", "INFO")
+
+    api_key: Optional[str] = os.getenv("API_KEY")
+
+    database_url: str = os.getenv(
+        "DATABASE_URL", "postgresql+psycopg://app:app@localhost:5432/nilrag"
+    )
+
+    vector_dim: int = int(os.getenv("VECTOR_DIM", "1536"))
+
+    secrets_dir: Optional[str] = os.getenv("SECRETS_DIR")
+    reddit_secrets_file: Optional[str] = os.getenv("REDDIT_SECRETS_FILE")
+    llm_secrets_file: Optional[str] = os.getenv("LLM_SECRETS_FILE")
+
+    llm_model: str = os.getenv("LLM_MODEL", "gpt-4o-mini")
+    embedding_model: str = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+
+    subreddits: str = os.getenv("SUBREDDITS", "exampleSub1+exampleSub2")
+    backfill_days: int = int(os.getenv("BACKFILL_DAYS", "30"))
+
+
+settings = Settings()
+
+
+def load_yaml_secret(path: Optional[str]) -> Dict[str, Any]:
+    if not path:
+        return {}
+    with open(path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+

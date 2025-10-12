@@ -1,0 +1,35 @@
+:root {
+  --bg: #0f172a;
+  --panel: #111827;
+  --text: #e5e7eb;
+  --muted: #9ca3af;
+  --accent: #22c55e;
+  --accent-2: #3b82f6;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, Apple Color Emoji, Segoe UI Emoji; }
+
+.app { display: grid; grid-template-rows: auto 1fr auto; height: 100%; max-width: 900px; margin: 0 auto; }
+header { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: var(--panel); border-bottom: 1px solid #1f2937; }
+h1 { margin: 0; font-size: 18px; }
+.status { font-size: 12px; color: var(--muted); }
+.status.up { color: var(--accent); }
+.status.down { color: #f87171; }
+
+main { padding: 12px 16px; display: grid; grid-template-rows: 1fr auto; gap: 12px; }
+.messages { background: #0b1220; border: 1px solid #1f2937; border-radius: 8px; padding: 12px; overflow-y: auto; }
+.empty { color: var(--muted); text-align: center; padding: 24px 0; }
+.msg { margin-bottom: 12px; }
+.msg .role { font-weight: 600; margin-bottom: 4px; color: var(--accent-2); }
+.msg.user .role { color: var(--accent); }
+.msg .content { white-space: pre-wrap; line-height: 1.4; }
+
+.composer { display: flex; gap: 8px; }
+.composer input { flex: 1; padding: 10px 12px; border-radius: 8px; border: 1px solid #1f2937; background: #0b1220; color: var(--text); }
+.composer button { padding: 10px 14px; border-radius: 8px; border: none; background: var(--accent-2); color: white; font-weight: 600; cursor: pointer; }
+.composer button:disabled { opacity: 0.6; cursor: default; }
+
+footer { padding: 12px 16px; color: var(--muted); text-align: center; }
+
