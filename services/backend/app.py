@@ -9,6 +9,7 @@ from sqlalchemy import text
 from services.common.config import settings
 from services.common.db import engine
 from services.common.logging import setup_logging
+from .routers import chat
 
 
 setup_logging()
@@ -30,3 +31,6 @@ def health() -> Dict[str, object]:
         logger.warning("DB health check failed: %s", e)
     return {"status": "ok", "db": db_status, "version": APP_VERSION}
 
+
+# Routers
+app.include_router(chat.router, prefix="/v1/chat", tags=["chat"])

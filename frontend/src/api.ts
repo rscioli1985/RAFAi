@@ -19,3 +19,37 @@ export async function mockChat(query: string): Promise<Message> {
   }
 }
 
+export async function chatStream(
+  query: string,
+  onToken: (t: string) => void,
+): Promise<void> {
+  const url = `${API_BASE}/v1/chat/stream`
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query }),
+  })
+  if (!res.ok || !res.body) throw new Error(`Chat stream failed: ${res.status}`)
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    const parts = buf.split('\n\n')
+    buf = parts.pop() || ''
+    for (const evt of parts) {
+      if (!evt.startsWith('data:')) continue
+      const data = evt.slice(5).trim()
+      try {
+        const json = JSON.parse(data)
+        if (json.done) return
+        if (json.delta) onToken(json.delta + ' ')
+      } catch (_) {
+        // ignore parse errors
+      }
+    }
+  }
+}

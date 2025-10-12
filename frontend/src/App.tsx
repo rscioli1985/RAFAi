@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { getHealth, mockChat, type Message } from './api'
+import { getHealth, mockChat, chatStream, type Message } from './api'
 
 function useHealth() {
   const [status, setStatus] = useState<'loading' | 'up' | 'down'>('loading')
@@ -40,9 +40,24 @@ export default function App() {
     setMessages((prev) => [...prev, userMsg])
     setSending(true)
     try {
-      // For now, always use mockChat; later wire to /v1/chat/stream
-      const reply = await mockChat(q)
-      setMessages((prev) => [...prev, reply])
+      if (demoMode) {
+        const reply = await mockChat(q)
+        setMessages((prev) => [...prev, reply])
+      } else {
+        let acc = ''
+        await chatStream(q, (t) => {
+          acc += t
+          setMessages((prev) => {
+            const head = prev.slice(0, -1)
+            const last = prev[prev.length - 1]
+            // If last is assistant, append; else create new assistant msg
+            if (last && last.role === 'assistant') {
+              return [...head, { ...last, content: acc }]
+            }
+            return [...prev, { role: 'assistant', content: acc }]
+          })
+        })
+      }
     } catch (err: any) {
       setMessages((prev) => [
         ...prev,
@@ -97,4 +112,3 @@ export default function App() {
     </div>
   )
 }
-
