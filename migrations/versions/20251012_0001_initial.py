@@ -26,7 +26,7 @@ def upgrade() -> None:
     op.create_table(
         "raw_posts",
         sa.Column("id", sa.String(length=32), primary_key=True),
-        sa.Column("subreddit", sa.String(length=255), nullable=False, index=True),
+        sa.Column("subreddit", sa.String(length=255), nullable=False),
         sa.Column("author", sa.String(length=255), nullable=True),
         sa.Column("title", sa.Text(), nullable=True),
         sa.Column("body", sa.Text(), nullable=True),
@@ -168,4 +168,3 @@ def downgrade() -> None:
     op.drop_index("ix_raw_posts_created_utc", table_name="raw_posts")
     op.drop_index("ix_raw_posts_subreddit", table_name="raw_posts")
     op.drop_table("raw_posts")
-

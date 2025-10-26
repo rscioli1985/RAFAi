@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
-from typing import Optional
+from datetime import datetime
+from typing import Optional, List
+
+from pydantic import BaseModel, Field
 
 
 class RawPost(BaseModel):
@@ -31,3 +33,10 @@ class FAQItem(BaseModel):
     source_post_id: Optional[str] = None
     confidence: Optional[float] = None
 
+
+class TrackedSubreddit(BaseModel):
+    id: int
+    name: str
+    poll_interval_minutes: int
+    last_fetched_at: Optional[datetime]
+    keywords: List[str] = Field(default_factory=list)

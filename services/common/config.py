@@ -42,6 +42,14 @@ class Settings:
     subreddits: str = os.getenv("SUBREDDITS", "exampleSub1+exampleSub2")
     backfill_days: int = int(os.getenv("BACKFILL_DAYS", "30"))
 
+    airflow_base_url: str = os.getenv("AIRFLOW_BASE_URL", "http://localhost:8080")
+    airflow_username: Optional[str] = os.getenv("AIRFLOW_USERNAME")
+    airflow_password: Optional[str] = os.getenv("AIRFLOW_PASSWORD")
+    airflow_api_token: Optional[str] = os.getenv("AIRFLOW_API_TOKEN")
+    airflow_verify_ssl: bool = _getenv_bool("AIRFLOW_VERIFY_SSL", False)
+    airflow_use_mock: bool = _getenv_bool("AIRFLOW_USE_MOCK", True)
+    airflow_timeout_seconds: float = float(os.getenv("AIRFLOW_TIMEOUT_SECONDS", "10"))
+
 
 settings = Settings()
 
@@ -51,4 +59,3 @@ def load_yaml_secret(path: Optional[str]) -> Dict[str, Any]:
         return {}
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
-

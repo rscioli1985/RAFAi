@@ -4,8 +4,11 @@ import datetime as dt
 from typing import Any, Dict, Iterable, List, Sequence, Tuple
 
 import sqlalchemy as sa
+from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
+
+from services.ingestion.models import TrackedSubreddit
 
 
 metadata = sa.MetaData()
@@ -48,6 +51,34 @@ ingestion_runs = sa.Table(
     sa.Column("status", sa.String(32)),
     sa.Column("error", sa.Text()),
     sa.Column("counts", sa.dialects.postgresql.JSONB),
+)
+
+subreddits = sa.Table(
+    "subreddits",
+    metadata,
+    sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
+    sa.Column("name", sa.String(255), nullable=False, unique=True),
+    sa.Column("description", sa.Text()),
+    sa.Column("status", sa.String(32), nullable=False, server_default=sa.text("'active'")),
+    sa.Column("poll_interval_minutes", sa.Integer(), nullable=False, server_default=sa.text("1440")),
+    sa.Column("last_fetched_at", sa.DateTime(timezone=True)),
+    sa.Column("last_post_id", sa.String(64)),
+)
+
+keywords = sa.Table(
+    "keywords",
+    metadata,
+    sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
+    sa.Column("term", sa.String(255), nullable=False, unique=True),
+    sa.Column("status", sa.String(32), nullable=False, server_default=sa.text("'active'")),
+)
+
+subreddit_keywords = sa.Table(
+    "subreddit_keywords",
+    metadata,
+    sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
+    sa.Column("subreddit_id", sa.BigInteger(), sa.ForeignKey("subreddits.id", ondelete="CASCADE")),
+    sa.Column("keyword_id", sa.BigInteger(), sa.ForeignKey("keywords.id", ondelete="CASCADE")),
 )
 
 
@@ -119,3 +150,59 @@ def record_ingestion_run(
     run_id = int(res.scalar_one())
     return run_id
 
+
+def get_due_subreddits(session: Session, *, now: dt.datetime) -> List[TrackedSubreddit]:
+    stmt = (
+        sa.select(
+            subreddits.c.id,
+            subreddits.c.name,
+            subreddits.c.poll_interval_minutes,
+            subreddits.c.last_fetched_at,
+            func.array_remove(func.array_agg(func.distinct(keywords.c.term)), None).label("keywords"),
+        )
+        .select_from(
+            subreddits.outerjoin(
+                subreddit_keywords,
+                subreddits.c.id == subreddit_keywords.c.subreddit_id,
+            ).outerjoin(
+                keywords,
+                subreddit_keywords.c.keyword_id == keywords.c.id,
+            )
+        )
+        .where(subreddits.c.status == sa.literal("active"))
+        .group_by(subreddits.c.id)
+    )
+
+    rows = session.execute(stmt).all()
+    due: List[TrackedSubreddit] = []
+    for row in rows:
+        poll_minutes = row.poll_interval_minutes or 1440
+        last = row.last_fetched_at
+        if last is not None:
+            if now - last < dt.timedelta(minutes=poll_minutes):
+                continue
+        keywords_list = [kw for kw in (row.keywords or []) if kw]
+        due.append(
+            TrackedSubreddit(
+                id=row.id,
+                name=row.name,
+                poll_interval_minutes=poll_minutes,
+                last_fetched_at=last,
+                keywords=keywords_list,
+            )
+        )
+    return due
+
+
+def update_subreddit_fetch(
+    session: Session,
+    subreddit_id: int,
+    *,
+    fetched_at: dt.datetime,
+    last_post_id: str | None,
+) -> None:
+    session.execute(
+        sa.update(subreddits)
+        .where(subreddits.c.id == subreddit_id)
+        .values(last_fetched_at=fetched_at, last_post_id=last_post_id)
+    )

@@ -1,0 +1,68 @@
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends
+import strawberry
+from strawberry.fastapi import GraphQLRouter
+from strawberry.types import Info
+
+from services.backend.orchestration import AirflowClient
+from services.common.db import get_session
+from .context import GraphQLContext
+from .resolvers import (
+    cancel_job_mutation,
+    reanalyze_mutation,
+    reembed_mutation,
+    resolve_job,
+    resolve_job_results,
+    resolve_jobs,
+    resolve_organization_by_slug,
+    resolve_organizations,
+    resolve_viewer,
+    run_scrape_mutation,
+)
+from .types import JobResultType, JobType, OrganizationType, UserType
+
+
+airflow_client = AirflowClient.from_settings()
+
+
+async def get_graphql_context(session=Depends(get_session)) -> GraphQLContext:
+    return GraphQLContext(session=session, airflow_client=airflow_client)
+
+
+@strawberry.type
+class Query:
+    viewer: UserType | None = strawberry.field(resolver=resolve_viewer)
+    organizations: list[OrganizationType] = strawberry.field(
+        resolver=resolve_organizations,
+        description="List all organizations current user can access (placeholder impl).",
+    )
+
+    @strawberry.field(description="Look up a single organization by slug.")
+    def organization_by_slug(self, info: Info, slug: str) -> OrganizationType | None:
+        return resolve_organization_by_slug(slug=slug, info=info)
+
+    job: JobType | None = strawberry.field(resolver=resolve_job, description="Fetch a single job by id.")
+    jobs: list[JobType] = strawberry.field(
+        resolver=resolve_jobs,
+        description="List jobs filtered by status/owner. Default limit=50.",
+    )
+    job_results: JobResultType | None = strawberry.field(
+        resolver=resolve_job_results, description="Fetch persisted outputs tied to a job."
+    )
+
+
+@strawberry.type
+class Mutation:
+    run_scrape: JobType = strawberry.mutation(resolver=run_scrape_mutation)
+    reanalyze: JobType = strawberry.mutation(resolver=reanalyze_mutation)
+    reembed: JobType = strawberry.mutation(resolver=reembed_mutation)
+    cancel_job: JobType = strawberry.mutation(resolver=cancel_job_mutation)
+
+
+schema = strawberry.Schema(query=Query, mutation=Mutation)
+graphql_router: APIRouter = GraphQLRouter(
+    schema,
+    context_getter=get_graphql_context,
+    graphiql=True,
+)
