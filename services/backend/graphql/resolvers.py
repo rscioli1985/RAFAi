@@ -62,13 +62,14 @@ def resolve_viewer(info) -> Optional[UserType]:
 
 def resolve_job(info, id: strawberry.ID) -> Optional[JobType]:
     session: Session = info.context.session
+    viewer_org = _get_viewer_org(session)
     job_id = _parse_uuid(id)
     if not job_id:
         return None
     job = (
         session.query(Job)
         .options(joinedload(Job.events))
-        .filter(Job.id == job_id)
+        .filter(Job.id == job_id, Job.organization_id == viewer_org.id)
         .first()
     )
     return JobType.from_model(job) if job else None
@@ -83,6 +84,8 @@ def resolve_jobs(
     session: Session = info.context.session
     limit = max(1, min(limit, 200))
     query = session.query(Job).options(joinedload(Job.events)).order_by(Job.created_at.desc(), Job.id.desc())
+
+    viewer_org = _get_viewer_org(session)
 
     if filter:
         if filter.status:
@@ -114,6 +117,8 @@ def resolve_jobs(
                     )
                 )
 
+    query = query.filter(Job.organization_id == viewer_org.id)
+
     jobs = query.limit(limit).all()
     return [JobType.from_model(job) for job in jobs]
 
@@ -124,10 +129,15 @@ def resolve_job_results(
     entity: Optional[JobEntityFilter] = None,
 ) -> Optional[JobResultType]:
     session: Session = info.context.session
+    viewer_org = _get_viewer_org(session)
     job_uuid = _parse_uuid(job_id)
     if not job_uuid:
         return None
-    exists = session.query(Job.id).filter(Job.id == job_uuid).first()
+    exists = (
+        session.query(Job.id)
+        .filter(Job.id == job_uuid, Job.organization_id == viewer_org.id)
+        .first()
+    )
     if not exists:
         return None
     return JobResultType.from_job(job_uuid, entity)
@@ -136,6 +146,8 @@ def resolve_job_results(
 def run_scrape_mutation(info, input: RunScrapeInput) -> JobType:
     if not input.subreddits:
         raise ValueError("At least one subreddit is required")
+    if not settings.feature_run_scrape:
+        raise ValueError("runScrape feature is disabled")
     _enforce_scrape_limits(input)
 
     session: Session = info.context.session
@@ -165,6 +177,8 @@ def run_scrape_mutation(info, input: RunScrapeInput) -> JobType:
 
 
 def reanalyze_mutation(info, job_id: strawberry.ID, llm_profile: str) -> JobType:
+    if not settings.feature_reanalyze:
+        raise ValueError("reanalyze feature is disabled")
     session: Session = info.context.session
     airflow_client = info.context.airflow_client
     owner, organization = _resolve_owner(session)
@@ -196,6 +210,8 @@ def reanalyze_mutation(info, job_id: strawberry.ID, llm_profile: str) -> JobType
 def reembed_mutation(info, post_ids: List[strawberry.ID], model: str) -> JobType:
     if not post_ids:
         raise ValueError("postIds must not be empty")
+    if not settings.feature_reembed:
+        raise ValueError("reembed feature is disabled")
 
     session: Session = info.context.session
     airflow_client = info.context.airflow_client
@@ -280,11 +296,16 @@ def _enqueue_job(
 
 
 def _resolve_owner(session: Session) -> tuple[Optional[User], Organization]:
+    organization = _get_viewer_org(session)
+    user = session.query(User).first()
+    return user, organization
+
+
+def _get_viewer_org(session: Session) -> Organization:
     organization = session.query(Organization).first()
     if not organization:
         raise ValueError("No organization configured; seed data first")
-    user = session.query(User).first()
-    return user, organization
+    return organization
 
 
 def _require_job(session: Session, job_id: strawberry.ID) -> Job:

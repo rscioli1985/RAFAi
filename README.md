@@ -6,6 +6,10 @@ Seed Default Data:
 ./scripts/bootstrapping/run-seeds.sh
   - Bootstraps the database (containers + migrations) and creates the admin@goanalog.com user/org.
 
+Render Secrets Templates:
+./scripts/render-secrets.sh
+  - Copies `infra/secrets/templates/*.yaml` into your `$SECRETS_DIR` (defaults to `.secrets/`). Update the generated files with real Reddit/LLM credentials referenced by `.env`.
+
 Run Airflow Orchestrator:
 ./scripts/run-airflow.sh
   - Builds the Airflow container image, launches the scheduler/webserver (http://localhost:8080) plus the reconciliation worker, and keeps DAGs in sync with the repo source. Copy `infra/airflow/.env.example` → `infra/airflow/.env` first to set secrets/DB overrides. Pass `--down` to stop and remove the stack.
@@ -30,3 +34,10 @@ Config Highlights (.env):
 - `MAX_SUBREDDITS_PER_JOB` / `MAX_KEYWORDS_PER_JOB` guard GraphQL mutations.
 - `LLM_DAILY_BUDGET_CENTS` caps LLM spend per org (checked before `reanalyze`/`reembed`).
 - `OPENAI_API_KEY` enables real embedding generation; fallback vectors are used otherwise.
+
+Terraform Pools / Queues:
+```
+cd infra/terraform/airflow
+terraform init && terraform apply -var "kubernetes_host=..." ...
+```
+  - Provisions ConfigMaps for Airflow pools + queues; integrate with your Helm release. See `infra/terraform/airflow/README.md`.

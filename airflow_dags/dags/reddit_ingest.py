@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any, Dict, List
 
 try:
@@ -11,11 +11,11 @@ try:
 except ImportError:  # pragma: no cover - allows linting without Airflow installed
     raise RuntimeError("Airflow must be installed to load DAGs")
 
-from services.backend.models import Post
 from services.common.db import session_scope
+from services.ingestion.persistence import persist_posts
 from services.ingestion.reddit_client import RedditClient
 
-from airflow_dags.dags.lib import init_logging, jobs, sanitize_text
+from airflow_dags.dags.lib import init_logging, jobs, match_keywords, sanitize_text, to_datetime
 
 
 logger = logging.getLogger(__name__)
@@ -73,7 +73,7 @@ def reddit_ingest():
         for subreddit in job_ctx["subreddits"]:
             posts = reddit.fetch_new_posts(subreddit, limit=max_per_sub)
             for post in posts:
-                if keywords and not _match_keywords(post, keywords):
+                if keywords and not match_keywords(post, keywords):
                     continue
                 collected.append(
                     {
@@ -84,7 +84,7 @@ def reddit_ingest():
                         "body": sanitize_text(post.get("body")),
                         "url": post.get("url"),
                         "score": post.get("score"),
-                        "posted_at": _to_datetime(post.get("created_utc")),
+                        "posted_at": to_datetime(post.get("created_utc")),
                     }
                 )
         jobs.append_job_event(job_ctx["job_id"], state="fetch_posts", message=f"Fetched {len(collected)} posts")
@@ -97,25 +97,12 @@ def reddit_ingest():
         inserted = 0
 
         with session_scope() as session:
-            for post in posts:
-                exists = session.query(Post).filter(Post.external_id == post["external_id"]).first()
-                if exists:
-                    continue
-                session.add(
-                    Post(
-                        job_id=job_uuid,
-                        organization_id=org_uuid,
-                        external_id=post["external_id"],
-                        subreddit=post["subreddit"],
-                        author=post["author"],
-                        title=post["title"],
-                        body=post["body"],
-                        url=post["url"],
-                        posted_at=post["posted_at"],
-                        score=post["score"],
-                    )
-                )
-                inserted += 1
+            inserted = persist_posts(
+                session,
+                job_id=job_uuid,
+                organization_id=org_uuid,
+                posts=posts,
+            )
             jobs.append_job_event(
                 job_ctx["job_id"], state="persist_posts", message=f"Inserted {inserted} posts", airflow_task_id="persist_posts"
             )
@@ -135,18 +122,3 @@ def reddit_ingest():
 
 
 reddit_ingest()
-
-
-def _match_keywords(post: Dict[str, Any], keywords: List[str]) -> bool:
-    haystack = f"{post.get('title', '')} {post.get('body', '')}".lower()
-    return any(keyword in haystack for keyword in keywords)
-
-
-def _to_datetime(ts: Any) -> datetime | None:
-    if not ts:
-        return None
-    try:
-        seconds = float(ts)
-    except (TypeError, ValueError):
-        return None
-    return datetime.fromtimestamp(seconds, tz=timezone.utc)

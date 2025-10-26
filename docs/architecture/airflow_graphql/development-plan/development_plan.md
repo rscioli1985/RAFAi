@@ -22,21 +22,22 @@ Deliver a production-ready orchestration layer where the FastAPI GraphQL control
 1. Provision shared Airflow cluster (dev/stage/prod) with Celery/KubernetesExecutor.
 2. Set up separate Airflow metadata Postgres + application Postgres connectivity (read/write roles scoped per DAG).
 3. Configure secret management (Airflow Connections + Vault/SM) for Reddit creds, LLM keys, Postgres creds.
-4. Create CI/CD pipeline for DAG deployments (linting, unit tests, packaging) and FastAPI schema contract tests.
+4. Create CI/CD pipeline for DAG deployments (linting, unit tests, packaging) and FastAPI schema contract tests. **Status:** `.github/workflows/ci.yml` installs dependencies and runs `pytest` (covering DAG helper/import tests + GraphQL schema checks).
 5. Implement Terraform/Ansible modules for Airflow pools, queues, worker autoscaling.
+   **Status:** `infra/terraform/airflow/` seeds pools/queues ConfigMaps; extend with provider-specific worker autoscaling.
 
 ### 4.2 Database & Schema Evolution (supports M0 → M1)
 1. Define SQLAlchemy models + Alembic migrations for `jobs`, `job_events`, `posts`, `comments`, `analyses`, `embeddings` additions.
-2. Implement ingestion utility package shared between backend and Airflow tasks for consistent validation/UPSERT logic.
+2. Implement ingestion utility package shared between backend and Airflow tasks for consistent validation/UPSERT logic. **Status:** `services/ingestion/persistence.py` now exposes helpers used by DAGs for posts/analyses.
 3. Add pgvector extension enablement + migrations for vector columns and indexes.
-4. Document schema versioning strategy for DAGs (package version pinning, release notes).
+4. Document schema versioning strategy for DAGs (package version pinning, release notes). **Status:** `docs/architecture/airflow_graphql/schema-versioning.md` established as the living changelog/process.
 
 ### 4.3 GraphQL Control Plane (supports M1)
 1. Extend GraphQL schema with Job types, mutations (`runScrape`, `reanalyze`, `reembed`, `cancelJob`) and queries (`job`, `jobs`, `jobResults`).
 2. Implement resolvers: validation, job row persistence, Airflow REST client (with retries, auth, circuit breaker).
 3. Enforce authZ per organization/user; integrate with existing FastAPI dependency stack.
 4. Return structured errors + status transitions; add unit/integration tests using mocked Airflow responses.
-5. Add feature flags for new mutations to allow phased rollout.
+5. Add feature flags for new mutations to allow phased rollout. **Status:** `.env` exposes `FEATURE_*` toggles enforced in GraphQL resolvers alongside org-scoped auth filtering + LLM budget checks.
 6. **Status:** `jobs` query now supports structured filters + cursor pagination (`JobFilterInput`, `after` cursor) so UI can page through history without bespoke SQL.
 
 ### 4.4 Airflow DAG Implementation (supports M2)

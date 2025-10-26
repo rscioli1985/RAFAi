@@ -45,6 +45,9 @@ class Settings:
     max_subreddits_per_job: int = int(os.getenv("MAX_SUBREDDITS_PER_JOB", "10"))
     max_keywords_per_job: int = int(os.getenv("MAX_KEYWORDS_PER_JOB", "50"))
     llm_daily_budget_cents: int = int(os.getenv("LLM_DAILY_BUDGET_CENTS", "5000"))
+    feature_run_scrape: bool = _getenv_bool("FEATURE_RUN_SCRAPE", True)
+    feature_reanalyze: bool = _getenv_bool("FEATURE_REANALYZE", True)
+    feature_reembed: bool = _getenv_bool("FEATURE_REEMBED", True)
 
     airflow_base_url: str = os.getenv("AIRFLOW_BASE_URL", "http://localhost:8080")
     airflow_username: Optional[str] = os.getenv("AIRFLOW_USERNAME")

@@ -14,6 +14,7 @@ except ImportError:  # pragma: no cover
 from services.backend.models import Analysis, Post
 from services.common.config import settings
 from services.common.db import session_scope
+from services.ingestion.persistence import persist_analysis
 
 from airflow_dags.dags.lib import init_logging, jobs, sanitize_text
 from services.common import metrics
@@ -120,18 +121,11 @@ def analysis_enrich():
         inserted = 0
 
         with session_scope() as session:
-            for record in analyses:
-                session.add(
-                    Analysis(
-                        job_id=job_uuid,
-                        post_id=record["post_id"],
-                        model=record["model"],
-                        summary=record["summary"],
-                        sentiment=record["sentiment"],
-                        metadata_json=record["metadata_json"],
-                    )
-                )
-                inserted += 1
+            inserted = persist_analysis(
+                session,
+                job_id=job_uuid,
+                records=analyses,
+            )
         jobs.append_job_event(job_ctx["job_id"], "persist_analyses", f"Inserted {inserted} analysis rows")
         return {"inserted": inserted}
 
