@@ -12,3 +12,5 @@ PyYAML~=6.0.0
 numpy~=1.26.0
 openai~=1.40.0
 pgvector~=0.2.0
+strawberry-graphql==0.284.1
+email-validator~=2.2.0
