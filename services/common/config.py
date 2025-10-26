@@ -38,9 +38,13 @@ class Settings:
 
     llm_model: str = os.getenv("LLM_MODEL", "gpt-4o-mini")
     embedding_model: str = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+    openai_api_key: Optional[str] = os.getenv("OPENAI_API_KEY")
 
     subreddits: str = os.getenv("SUBREDDITS", "exampleSub1+exampleSub2")
     backfill_days: int = int(os.getenv("BACKFILL_DAYS", "30"))
+    max_subreddits_per_job: int = int(os.getenv("MAX_SUBREDDITS_PER_JOB", "10"))
+    max_keywords_per_job: int = int(os.getenv("MAX_KEYWORDS_PER_JOB", "50"))
+    llm_daily_budget_cents: int = int(os.getenv("LLM_DAILY_BUDGET_CENTS", "5000"))
 
     airflow_base_url: str = os.getenv("AIRFLOW_BASE_URL", "http://localhost:8080")
     airflow_username: Optional[str] = os.getenv("AIRFLOW_USERNAME")

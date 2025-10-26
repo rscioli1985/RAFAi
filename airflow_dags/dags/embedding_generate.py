@@ -5,8 +5,6 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any, Dict, List
 
-import numpy as np
-
 try:
     from airflow.decorators import dag, task
     from airflow.operators.python import get_current_context
@@ -16,6 +14,7 @@ except ImportError:  # pragma: no cover
 from services.backend.models import Analysis, Embedding
 from services.common.config import settings
 from services.common.db import session_scope
+from services.ingestion.embeddings import compute_embeddings
 
 from airflow_dags.dags.lib import init_logging, jobs
 
@@ -85,15 +84,16 @@ def embedding_generate():
 
     @task(task_id="encode_vectors")
     def encode_vectors_task(job_ctx: Dict[str, Any], analyses: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        summaries = [item["summary"] for item in analyses]
+        embeddings = compute_embeddings(summaries)
         vectors: List[Dict[str, Any]] = []
-        dim = settings.vector_dim
-        for item in analyses:
-            vector = _deterministic_embedding(item["summary"], dim)
+        for item, vector in zip(analyses, embeddings):
+            dims = len(vector)
             vectors.append(
                 {
                     "analysis_id": item["analysis_id"],
                     "vector": vector,
-                    "dims": dim,
+                    "dims": dims,
                     "model": job_ctx["model"],
                 }
             )
@@ -133,13 +133,3 @@ def embedding_generate():
 
 
 embedding_generate()
-
-
-def _deterministic_embedding(text: str, dims: int) -> List[float]:
-    seed = abs(hash(text)) % (2**32)
-    rng = np.random.default_rng(seed)
-    vector = rng.standard_normal(dims)
-    norm = np.linalg.norm(vector)
-    if norm == 0:
-        return vector.tolist()
-    return (vector / norm).tolist()

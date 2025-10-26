@@ -8,7 +8,7 @@ Seed Default Data:
 
 Run Airflow Orchestrator:
 ./scripts/run-airflow.sh
-  - Builds the Airflow container image, launches the scheduler/webserver (http://localhost:8080), and keeps DAGs in sync with the repo source. Copy `infra/airflow/.env.example` → `infra/airflow/.env` first to set secrets/DB overrides. Pass `--down` to stop and remove the container.
+  - Builds the Airflow container image, launches the scheduler/webserver (http://localhost:8080) plus the reconciliation worker, and keeps DAGs in sync with the repo source. Copy `infra/airflow/.env.example` → `infra/airflow/.env` first to set secrets/DB overrides. Pass `--down` to stop and remove the stack.
 
 Sync Job Status (Airflow → GraphQL DB):
 ./scripts/run-reconciler.sh [--interval 60]
@@ -21,3 +21,12 @@ GET http://localhost:8000/metrics
 Monitor Stack:
 ./scripts/run-prometheus.sh
   - Starts Prometheus (http://localhost:9090) scraping the backend `/metrics` endpoint (and Airflow if exposed). Use `./scripts/run-prometheus.sh --down` to stop it; edit `infra/monitoring/prometheus.yml` to add more targets.
+
+DAG Import Tests:
+pytest tests/dags/test_imports.py
+  - Verifies every module in `airflow_dags/dags` imports cleanly (skips automatically if Airflow isn’t installed); integrate into CI to catch syntax/import errors early.
+
+Config Highlights (.env):
+- `MAX_SUBREDDITS_PER_JOB` / `MAX_KEYWORDS_PER_JOB` guard GraphQL mutations.
+- `LLM_DAILY_BUDGET_CENTS` caps LLM spend per org (checked before `reanalyze`/`reembed`).
+- `OPENAI_API_KEY` enables real embedding generation; fallback vectors are used otherwise.

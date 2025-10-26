@@ -27,5 +27,21 @@ services:
       - "8080:8080"
     command: ["standalone"]
 
+  reconciler:
+    build:
+      context: ../..
+      dockerfile: infra/airflow/Dockerfile
+    container_name: nilrag-reconciler
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://app:app@host.docker.internal:5432/nilrag}
+      AIRFLOW_BASE_URL: http://airflow:8080
+      PYTHONPATH: /opt/nilrag
+    volumes:
+      - ../..:/opt/nilrag
+    depends_on:
+      - airflow
+    command: ["bash", "-lc", "cd /opt/nilrag && ./scripts/run-reconciler.sh --interval 60"]
+
 volumes:
   airflow_home:

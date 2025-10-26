@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 import strawberry
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from services.backend.models import Job, JobEvent, Organization, User
 from services.backend.orchestration import AirflowClientError
+from services.common.config import settings
 from services.common.metrics import (
     record_job_canceled,
     record_job_failed,
@@ -135,6 +136,7 @@ def resolve_job_results(
 def run_scrape_mutation(info, input: RunScrapeInput) -> JobType:
     if not input.subreddits:
         raise ValueError("At least one subreddit is required")
+    _enforce_scrape_limits(input)
 
     session: Session = info.context.session
     airflow_client = info.context.airflow_client
@@ -157,6 +159,7 @@ def run_scrape_mutation(info, input: RunScrapeInput) -> JobType:
         conf=conf,
         priority=input.priority or 0,
         description="Reddit scrape requested via GraphQL",
+        cost_estimate_cents=None,
     )
     return JobType.from_model(job)
 
@@ -172,6 +175,9 @@ def reanalyze_mutation(info, job_id: strawberry.ID, llm_profile: str) -> JobType
         "llm_profile": llm_profile,
     }
 
+    estimated_cost = _estimate_job_cost("analysis_reanalyze")
+    _ensure_llm_budget(session, organization.id, estimated_cost)
+
     job = _enqueue_job(
         session=session,
         airflow_client=airflow_client,
@@ -182,6 +188,7 @@ def reanalyze_mutation(info, job_id: strawberry.ID, llm_profile: str) -> JobType
         conf=conf,
         priority=source_job.priority,
         description="Reanalyze posts via GraphQL",
+        cost_estimate_cents=estimated_cost,
     )
     return JobType.from_model(job)
 
@@ -199,6 +206,9 @@ def reembed_mutation(info, post_ids: List[strawberry.ID], model: str) -> JobType
         "model": model,
     }
 
+    estimated_cost = _estimate_job_cost("embedding_generate")
+    _ensure_llm_budget(session, organization.id, estimated_cost)
+
     job = _enqueue_job(
         session=session,
         airflow_client=airflow_client,
@@ -209,6 +219,7 @@ def reembed_mutation(info, post_ids: List[strawberry.ID], model: str) -> JobType
         conf=conf,
         priority=0,
         description="Rebuild embeddings via GraphQL",
+        cost_estimate_cents=estimated_cost,
     )
     return JobType.from_model(job)
 
@@ -234,6 +245,7 @@ def _enqueue_job(
     conf: dict,
     priority: int,
     description: str,
+    cost_estimate_cents: Optional[int],
 ) -> Job:
     job = Job(
         organization_id=organization_id,
@@ -243,6 +255,7 @@ def _enqueue_job(
         dag_id=dag_id,
         priority=priority,
         conf=conf,
+        cost_estimate_cents=cost_estimate_cents,
     )
     session.add(job)
     session.flush()
@@ -296,3 +309,45 @@ def _parse_uuid(value: Optional[str]) -> Optional[uuid.UUID]:
         return uuid.UUID(str(value))
     except ValueError:
         return None
+
+
+def _enforce_scrape_limits(input: RunScrapeInput) -> None:
+    max_subreddits = max(1, settings.max_subreddits_per_job)
+    max_keywords = max(1, settings.max_keywords_per_job)
+    if len(input.subreddits) > max_subreddits:
+        raise ValueError(f"Too many subreddits; max allowed is {max_subreddits}.")
+    keyword_count = len(input.keywords or [])
+    if keyword_count > max_keywords:
+        raise ValueError(f"Too many keywords; max allowed is {max_keywords}.")
+
+
+LLM_JOB_TYPES = {"analysis_reanalyze", "embedding_generate"}
+LLM_COST_ESTIMATE_CENTS = {
+    "analysis_reanalyze": 200,
+    "embedding_generate": 150,
+}
+
+
+def _estimate_job_cost(job_type: str) -> Optional[int]:
+    return LLM_COST_ESTIMATE_CENTS.get(job_type)
+
+
+def _ensure_llm_budget(session: Session, organization_id: uuid.UUID, estimated_cost: Optional[int]) -> None:
+    if not estimated_cost or estimated_cost <= 0:
+        return
+    budget = settings.llm_daily_budget_cents
+    if budget <= 0:
+        return
+    window_start = datetime.utcnow() - timedelta(hours=24)
+    spent = (
+        session.query(func.coalesce(func.sum(Job.cost_estimate_cents), 0))
+        .filter(
+            Job.organization_id == organization_id,
+            Job.type.in_(LLM_JOB_TYPES),
+            Job.created_at >= window_start,
+            Job.status != JobStatusEnum.canceled.value,
+        )
+        .scalar()
+    )
+    if spent + estimated_cost > budget:
+        raise ValueError("LLM daily budget exceeded. Try again later or contact support.")
