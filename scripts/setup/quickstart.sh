@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-ROOT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OS_NAME="$(uname -s)"
 BREW_CMD="${BREW_BIN:-}"
 VENV_DIR="${VENV_DIR:-$ROOT_DIR/.venv}"

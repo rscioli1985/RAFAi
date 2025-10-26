@@ -60,5 +60,6 @@ if [[ "$DEBUG" -eq 1 ]]; then
   ARGS+=("--reload" "--reload-delay" "0.5")
 fi
 
+cd "$ROOT_DIR"
 echo "[run-backend] Launching uvicorn (${UVICORN_BIN})"
 exec "$UVICORN_BIN" "${ARGS[@]}"

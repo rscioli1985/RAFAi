@@ -6,7 +6,7 @@ set -euo pipefail
 # - Waits for readiness
 # - Runs `alembic upgrade head`
 
-PROJ_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROJ_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 INFRA_DIR="$PROJ_ROOT/infra"
 SERVICE_NAME="postgres"
 CONTAINER_NAME="nilrag-postgres"
@@ -45,4 +45,3 @@ export DATABASE_URL="${DATABASE_URL:-$DATABASE_URL_DEFAULT}"
 "$ALEMBIC_BIN" upgrade head
 
 echo "[db-init] Done. Postgres running and schema migrated."
-
