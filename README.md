@@ -34,6 +34,7 @@ Config Highlights (.env):
 - `MAX_SUBREDDITS_PER_JOB` / `MAX_KEYWORDS_PER_JOB` guard GraphQL mutations.
 - `LLM_DAILY_BUDGET_CENTS` caps LLM spend per org (checked before `reanalyze`/`reembed`).
 - `OPENAI_API_KEY` enables real embedding generation; fallback vectors are used otherwise.
+- `LOG_JSON` toggles structured JSON logging (better for ELK/CloudWatch ingestion).
 
 Terraform Pools / Queues:
 ```
@@ -41,3 +42,7 @@ cd infra/terraform/airflow
 terraform init && terraform apply -var "kubernetes_host=..." ...
 ```
   - Provisions ConfigMaps for Airflow pools + queues; integrate with your Helm release. See `infra/terraform/airflow/README.md`.
+
+GraphQL Authentication:
+- `POST /api/auth/login` with email/password to retrieve user/org IDs + role info.
+- Pass `X-User-ID` and `X-Org-ID` headers on every GraphQL request; resolvers enforce org-level scoping and membership validation.

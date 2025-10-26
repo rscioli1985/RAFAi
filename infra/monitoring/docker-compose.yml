@@ -5,9 +5,21 @@ services:
     restart: unless-stopped
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
     ports:
       - "9090:9090"
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--web.enable-lifecycle"
+      - "--alertmanager.notification-queue-capacity=25"
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: nilrag-alertmanager
+    restart: unless-stopped
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "9093:9093"
 
 # Launch with: docker compose -f infra/monitoring/docker-compose.yml up -d

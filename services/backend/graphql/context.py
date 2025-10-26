@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
+from services.backend.models import Organization, User
 from services.backend.orchestration import AirflowClient
 
 
@@ -13,3 +14,5 @@ class GraphQLContext:
 
     session: Session
     airflow_client: AirflowClient
+    user: User | None
+    organization: Organization | None

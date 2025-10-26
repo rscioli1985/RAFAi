@@ -35,7 +35,7 @@ Deliver a production-ready orchestration layer where the FastAPI GraphQL control
 ### 4.3 GraphQL Control Plane (supports M1)
 1. Extend GraphQL schema with Job types, mutations (`runScrape`, `reanalyze`, `reembed`, `cancelJob`) and queries (`job`, `jobs`, `jobResults`).
 2. Implement resolvers: validation, job row persistence, Airflow REST client (with retries, auth, circuit breaker).
-3. Enforce authZ per organization/user; integrate with existing FastAPI dependency stack.
+3. Enforce authZ per organization/user; integrate with existing FastAPI dependency stack. **Status:** GraphQL context now derives `X-User-ID`/`X-Org-ID` headers, validates `OrganizationMembership`, and scopes all queries/mutations to the active org.
 4. Return structured errors + status transitions; add unit/integration tests using mocked Airflow responses.
 5. Add feature flags for new mutations to allow phased rollout. **Status:** `.env` exposes `FEATURE_*` toggles enforced in GraphQL resolvers alongside org-scoped auth filtering + LLM budget checks.
 6. **Status:** `jobs` query now supports structured filters + cursor pagination (`JobFilterInput`, `after` cursor) so UI can page through history without bespoke SQL.
@@ -55,6 +55,7 @@ Deliver a production-ready orchestration layer where the FastAPI GraphQL control
 2. Emit Prometheus metrics (`jobs_submitted`, `task_failures`, `reddit_rate_limit_hits`, `llm_tokens_consumed`). **Status:** `/metrics` now emits job lifecycle + Reddit rate-limit + LLM token counters; Prometheus docker-compose + config lives in `infra/monitoring/` for local scraping.
 3. Configure Grafana dashboards + PagerDuty alerts (backlog, repeated failures, spend caps).
 4. Centralize structured logging (Airflow → ELK/CloudWatch) with correlation IDs passed from GraphQL.
+   **Status:** Backend emits JSON logs when `LOG_JSON=true`; extend with explicit correlation IDs + log shipping integration.
 5. Document runbooks: DAG failure, API failure, credential rotation, backfill workflow.
 
 ### 4.6 Security & Compliance (supports M3 → M4)

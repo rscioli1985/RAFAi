@@ -10,6 +10,9 @@ Welcome! This directory captures every artifact needed to implement and maintain
 - `../../airflow_dags/`: Source-controlled DAGs plus helpers referenced in the plan (see `airflow_dags/README.md` for usage).
 - `schema-versioning.md`: Living log of Alembic migrations + ingestion package expectations.
 - `../../infra/secrets/README.md`: Source of truth for secret rendering workflow.
+- `../../infra/monitoring/README.md`: Prometheus/Grafana instructions + alerts.
+- `../operations/runbooks.md`: Incident response guides.
+- `security/threat_model.md` and `qa/soak_load_plan.md`: Supporting docs for §§4.6 and 4.7.
 
 ## How To Consume
 1. **Align on intent**: Start with the PRD to confirm objectives, architecture, and settled decisions. Capture any new assumptions in the PRD’s Decisions section before coding.

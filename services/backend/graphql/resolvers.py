@@ -29,40 +29,28 @@ from .types import (
 )
 
 
-def _query_organizations(session: Session) -> List[Organization]:
-    return session.query(Organization).order_by(Organization.created_at.asc()).all()
-
-
 def resolve_organizations(info) -> List[OrganizationType]:
-    session: Session = info.context.session
-    organizations = _query_organizations(session)
-    return [OrganizationType.from_model(org) for org in organizations]
+    org = info.context.organization
+    if not org:
+        return []
+    return [OrganizationType.from_model(org)]
 
 
 def resolve_organization_by_slug(slug: str, info) -> Optional[OrganizationType]:
-    session: Session = info.context.session
-    organization = (
-        session.query(Organization)
-        .options(joinedload(Organization.roles))
-        .filter(Organization.slug == slug)
-        .first()
-    )
-    if not organization:
+    org = info.context.organization
+    if not org or org.slug != slug:
         return None
-    return OrganizationType.from_model(organization)
+    return OrganizationType.from_model(org)
 
 
 def resolve_viewer(info) -> Optional[UserType]:
-    session: Session = info.context.session
-    user = session.query(User).first()
-    if not user:
-        return None
-    return UserType.from_model(user)
+    user = info.context.user
+    return UserType.from_model(user) if user else None
 
 
 def resolve_job(info, id: strawberry.ID) -> Optional[JobType]:
     session: Session = info.context.session
-    viewer_org = _get_viewer_org(session)
+    viewer_org = _require_org(info)
     job_id = _parse_uuid(id)
     if not job_id:
         return None
@@ -83,9 +71,13 @@ def resolve_jobs(
 ) -> List[JobType]:
     session: Session = info.context.session
     limit = max(1, min(limit, 200))
-    query = session.query(Job).options(joinedload(Job.events)).order_by(Job.created_at.desc(), Job.id.desc())
-
-    viewer_org = _get_viewer_org(session)
+    viewer_org = _require_org(info)
+    query = (
+        session.query(Job)
+        .options(joinedload(Job.events))
+        .filter(Job.organization_id == viewer_org.id)
+        .order_by(Job.created_at.desc(), Job.id.desc())
+    )
 
     if filter:
         if filter.status:
@@ -98,8 +90,8 @@ def resolve_jobs(
                 query = query.filter(Job.owner_user_id == owner_uuid)
         if filter.organization_id:
             org_uuid = _parse_uuid(filter.organization_id)
-            if org_uuid:
-                query = query.filter(Job.organization_id == org_uuid)
+            if org_uuid and org_uuid != viewer_org.id:
+                return []
 
     if after:
         cursor_uuid = _parse_uuid(after)
@@ -117,8 +109,6 @@ def resolve_jobs(
                     )
                 )
 
-    query = query.filter(Job.organization_id == viewer_org.id)
-
     jobs = query.limit(limit).all()
     return [JobType.from_model(job) for job in jobs]
 
@@ -129,7 +119,7 @@ def resolve_job_results(
     entity: Optional[JobEntityFilter] = None,
 ) -> Optional[JobResultType]:
     session: Session = info.context.session
-    viewer_org = _get_viewer_org(session)
+    viewer_org = _require_org(info)
     job_uuid = _parse_uuid(job_id)
     if not job_uuid:
         return None
@@ -152,7 +142,7 @@ def run_scrape_mutation(info, input: RunScrapeInput) -> JobType:
 
     session: Session = info.context.session
     airflow_client = info.context.airflow_client
-    owner, organization = _resolve_owner(session)
+    owner, organization = _resolve_owner(info)
     conf = {
         "subreddits": input.subreddits,
         "keywords": input.keywords or [],
@@ -181,8 +171,8 @@ def reanalyze_mutation(info, job_id: strawberry.ID, llm_profile: str) -> JobType
         raise ValueError("reanalyze feature is disabled")
     session: Session = info.context.session
     airflow_client = info.context.airflow_client
-    owner, organization = _resolve_owner(session)
-    source_job = _require_job(session, job_id)
+    owner, organization = _resolve_owner(info)
+    source_job = _require_job(session, job_id, organization_id=organization.id)
 
     conf = {
         "source_job_id": str(source_job.id),
@@ -215,7 +205,7 @@ def reembed_mutation(info, post_ids: List[strawberry.ID], model: str) -> JobType
 
     session: Session = info.context.session
     airflow_client = info.context.airflow_client
-    owner, organization = _resolve_owner(session)
+    owner, organization = _resolve_owner(info)
 
     conf = {
         "post_ids": [str(pid) for pid in post_ids],
@@ -242,7 +232,7 @@ def reembed_mutation(info, post_ids: List[strawberry.ID], model: str) -> JobType
 
 def cancel_job_mutation(info, job_id: strawberry.ID) -> JobType:
     session: Session = info.context.session
-    job = _require_job(session, job_id)
+    job = _require_job(session, job_id, organization_id=_require_org(info).id)
     job.status = JobStatusEnum.canceled.value
     job.completed_at = datetime.utcnow()
     job.events.append(JobEvent(state="canceled", message="Canceled via GraphQL"))
@@ -295,29 +285,19 @@ def _enqueue_job(
     return job
 
 
-def _resolve_owner(session: Session) -> tuple[Optional[User], Organization]:
-    organization = _get_viewer_org(session)
-    user = session.query(User).first()
-    return user, organization
+def _resolve_owner(info) -> tuple[Optional[User], Organization]:
+    organization = _require_org(info)
+    return info.context.user, organization
 
 
-def _get_viewer_org(session: Session) -> Organization:
-    organization = session.query(Organization).first()
-    if not organization:
-        raise ValueError("No organization configured; seed data first")
-    return organization
-
-
-def _require_job(session: Session, job_id: strawberry.ID) -> Job:
+def _require_job(session: Session, job_id: strawberry.ID, organization_id: Optional[uuid.UUID] = None) -> Job:
     job_uuid = _parse_uuid(job_id)
     if not job_uuid:
         raise ValueError("Invalid job id")
-    job = (
-        session.query(Job)
-        .options(joinedload(Job.events))
-        .filter(Job.id == job_uuid)
-        .first()
-    )
+    query = session.query(Job).options(joinedload(Job.events)).filter(Job.id == job_uuid)
+    if organization_id:
+        query = query.filter(Job.organization_id == organization_id)
+    job = query.first()
     if not job:
         raise ValueError("Job not found")
     return job
@@ -372,3 +352,10 @@ def _ensure_llm_budget(session: Session, organization_id: uuid.UUID, estimated_c
     )
     if spent + estimated_cost > budget:
         raise ValueError("LLM daily budget exceeded. Try again later or contact support.")
+
+
+def _require_org(info) -> Organization:
+    org = getattr(info.context, "organization", None)
+    if not org:
+        raise ValueError("Organization scope required")
+    return org

@@ -23,6 +23,7 @@ def _getenv_bool(name: str, default: bool = False) -> bool:
 class Settings:
     app_env: str = os.getenv("APP_ENV", "development")
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
+    log_json: bool = _getenv_bool("LOG_JSON", False)
 
     api_key: Optional[str] = os.getenv("API_KEY")
 

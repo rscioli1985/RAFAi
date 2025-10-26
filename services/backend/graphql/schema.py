@@ -4,12 +4,19 @@ import strawberry
 from strawberry.types import Info
 
 try:  # pragma: no cover - optional for schema import during tests
-    from fastapi import APIRouter, Depends  # type: ignore
+    from fastapi import APIRouter, Depends, HTTPException, Request, status  # type: ignore
     from strawberry.fastapi import GraphQLRouter  # type: ignore
 except ModuleNotFoundError:  # pragma: no cover
     APIRouter = None  # type: ignore
     GraphQLRouter = None  # type: ignore
     Depends = None  # type: ignore
+    HTTPException = None  # type: ignore
+    Request = None  # type: ignore
+    status = None  # type: ignore
+
+import uuid
+
+from services.backend.models import Organization, OrganizationMembership, User
 
 from services.backend.orchestration import AirflowClient
 from services.common.db import get_session
@@ -32,17 +39,48 @@ from .types import JobResultType, JobType, OrganizationType, UserType
 airflow_client = AirflowClient.from_settings()
 
 
+def _authenticate_request(request: Request, session) -> tuple[User | None, Organization | None]:
+    user_header = request.headers.get("X-User-ID")
+    org_header = request.headers.get("X-Org-ID")
+    if not user_header or not org_header:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing auth headers")
+    try:
+        user_uuid = uuid.UUID(user_header)
+        org_uuid = uuid.UUID(org_header)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid auth headers")
+
+    user = session.get(User, user_uuid)
+    org = session.get(Organization, org_uuid)
+    if not user or not org:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unknown user/org")
+
+    membership = (
+        session.query(OrganizationMembership)
+        .filter(
+            OrganizationMembership.user_id == user.id,
+            OrganizationMembership.organization_id == org.id,
+            OrganizationMembership.status == "active",
+        )
+        .first()
+    )
+    if not membership:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User not part of organization")
+    return user, org
+
+
 if Depends is not None:
 
-    async def get_graphql_context(session=Depends(get_session)) -> GraphQLContext:  # type: ignore[misc]
-        return GraphQLContext(session=session, airflow_client=airflow_client)
+    async def get_graphql_context(request: Request, session=Depends(get_session)) -> GraphQLContext:  # type: ignore[misc]
+        user, org = _authenticate_request(request, session)
+        return GraphQLContext(session=session, airflow_client=airflow_client, user=user, organization=org)
 
 else:  # pragma: no cover
 
     async def get_graphql_context(session) -> GraphQLContext:
         if session is None:
             raise RuntimeError("FastAPI dependency injection unavailable; pass a session explicitly.")
-        return GraphQLContext(session=session, airflow_client=airflow_client)
+        return GraphQLContext(session=session, airflow_client=airflow_client, user=None, organization=None)
 
 
 @strawberry.type

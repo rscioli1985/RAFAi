@@ -1,0 +1,76 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": "-- Grafana --",
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "panels": [
+    {
+      "title": "Jobs Submitted / Completed / Failed",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PROM"
+      },
+      "targets": [
+        {
+          "expr": "sum by(job_type)(increase(jobs_submitted_total[5m]))",
+          "legendFormat": "submitted {{job_type}}"
+        },
+        {
+          "expr": "sum by(job_type)(increase(jobs_completed_total[5m]))",
+          "legendFormat": "completed {{job_type}}"
+        },
+        {
+          "expr": "sum by(job_type)(increase(jobs_failed_total[5m]))",
+          "legendFormat": "failed {{job_type}}"
+        }
+      ],
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 0}
+    },
+    {
+      "title": "Reddit Rate Limit Hits",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PROM"
+      },
+      "targets": [
+        {
+          "expr": "sum by(subreddit)(increase(reddit_rate_limit_hits_total[5m]))",
+          "legendFormat": "{{subreddit}}"
+        }
+      ],
+      "gridPos": {"h": 6, "w": 12, "x": 12, "y": 0}
+    },
+    {
+      "title": "LLM Tokens Consumed",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PROM"
+      },
+      "targets": [
+        {
+          "expr": "sum by(model)(increase(llm_tokens_consumed_total[5m]))",
+          "legendFormat": "{{model}}"
+        }
+      ],
+      "gridPos": {"h": 6, "w": 12, "x": 0, "y": 9}
+    }
+  ],
+  "schemaVersion": 38,
+  "title": "NilRAG Orchestration",
+  "timezone": "browser",
+  "weekStart": ""
+}

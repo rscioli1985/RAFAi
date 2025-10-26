@@ -3,14 +3,15 @@ from __future__ import annotations
 import logging
 from typing import Dict
 
-from fastapi import FastAPI, Response
+import uuid
+from fastapi import FastAPI, Response, Request
 from sqlalchemy import text
 
 from services.backend.graphql import graphql_router
 from services.backend.routes import auth_router, subreddits_router, keywords_router
 from services.common.config import settings
 from services.common.db import engine
-from services.common.logging import setup_logging
+from services.common.logging import setup_logging, bind_request_context, reset_request_context
 from services.common.metrics import render_prometheus_metrics
 
 
@@ -42,3 +43,13 @@ def health() -> Dict[str, object]:
 def metrics() -> Response:
     payload, content_type = render_prometheus_metrics()
     return Response(content=payload, media_type=content_type)
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    token = bind_request_context(request_id)
+    try:
+        response = await call_next(request)
+    finally:
+        reset_request_context(token)
+    response.headers["X-Request-ID"] = request_id
+    return response
