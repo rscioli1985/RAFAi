@@ -9,6 +9,7 @@ from .organization import (
     UserRole,
 )
 from .ingestion import Subreddit, Keyword, SubredditKeyword
+from .jobs import Job, JobEvent, Post, Comment, Analysis, Embedding
 
 __all__ = [
     "Base",
@@ -23,4 +24,10 @@ __all__ = [
     "Subreddit",
     "Keyword",
     "SubredditKeyword",
+    "Job",
+    "JobEvent",
+    "Post",
+    "Comment",
+    "Analysis",
+    "Embedding",
 ]
