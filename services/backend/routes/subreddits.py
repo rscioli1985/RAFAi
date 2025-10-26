@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status, Response
-from pydantic import BaseModel, conint, constr
+from pydantic import BaseModel, Field, conint, constr
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from services.backend.models import Subreddit, Keyword, SubredditKeyword
 from services.common.db import get_session
@@ -24,11 +24,11 @@ class SubredditResponse(BaseModel):
     last_post_id: Optional[str]
     created_at: str
     updated_at: str
-    keywords: List[int] = []
+    keywords: List[int] = Field(default_factory=list)
 
     @classmethod
     def from_model(cls, model: Subreddit) -> "SubredditResponse":
-        keyword_ids = [assoc.keyword_id for assoc in model.keywords]
+        keyword_ids = [assoc.keyword_id for assoc in (model.keywords or [])]
         return cls(
             id=model.id,
             name=model.name,
@@ -64,15 +64,29 @@ def _get_subreddit_or_404(session: Session, subreddit_id: int) -> Subreddit:
     return subreddit
 
 
+def _get_keywords_or_error(session: Session, keyword_ids: List[int]) -> List[Keyword]:
+    if not keyword_ids:
+        return []
+    rows = session.query(Keyword).filter(Keyword.id.in_(keyword_ids)).all()
+    found_ids = {row.id for row in rows}
+    missing = sorted(set(keyword_ids) - found_ids)
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Keywords not found: {missing}",
+        )
+    return rows
+
+
 @router.get("", response_model=List[SubredditResponse])
 def list_subreddits(
     status_filter: Optional[str] = Query(default=None, alias="status"),
     session: Session = Depends(get_session),
 ) -> List[SubredditResponse]:
-    stmt = select(Subreddit).order_by(Subreddit.created_at.asc())
+    query = session.query(Subreddit).options(joinedload(Subreddit.keywords))
     if status_filter:
-        stmt = stmt.where(Subreddit.status == status_filter)
-    rows = session.execute(stmt).scalars().all()
+        query = query.filter(Subreddit.status == status_filter)
+    rows = query.order_by(Subreddit.created_at.asc()).all()
     return [SubredditResponse.from_model(row) for row in rows]
 
 
@@ -92,11 +106,7 @@ def create_subreddit(payload: SubredditCreate, session: Session = Depends(get_se
     session.flush()
 
     if payload.keyword_ids:
-        keywords = (
-            session.query(Keyword)
-            .filter(Keyword.id.in_(payload.keyword_ids))
-            .all()
-        )
+        keywords = _get_keywords_or_error(session, payload.keyword_ids)
         for keyword in keywords:
             session.add(SubredditKeyword(subreddit_id=subreddit.id, keyword_id=keyword.id))
 
@@ -120,13 +130,9 @@ def update_subreddit(
         subreddit.poll_interval_minutes = payload.poll_interval_minutes
 
     if payload.keyword_ids is not None:
-        session.query(SubredditKeyword).filter(SubredditKeyword.subreddit_id == subreddit.id).delete()
+        session.query(SubredditKeyword).filter(SubredditKeyword.subreddit_id == subreddit.id).delete(synchronize_session=False)
         if payload.keyword_ids:
-            keywords = (
-                session.query(Keyword)
-                .filter(Keyword.id.in_(payload.keyword_ids))
-                .all()
-            )
+            keywords = _get_keywords_or_error(session, payload.keyword_ids)
             for keyword in keywords:
                 session.add(SubredditKeyword(subreddit_id=subreddit.id, keyword_id=keyword.id))
 

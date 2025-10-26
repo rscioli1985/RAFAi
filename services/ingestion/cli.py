@@ -12,9 +12,15 @@ from services.common.config import settings
 from services.common.logging import setup_logging
 from services.common.db import session_scope
 from .reddit_client import RedditClient
-from .filters import is_nil_relevant
+from .filters import is_nil_relevant, DEFAULT_KEYWORDS
 from .faq_curator import extract_faqs
-from .store import upsert_raw_posts, upsert_faqs, record_ingestion_run
+from .store import (
+    upsert_raw_posts,
+    upsert_faqs,
+    record_ingestion_run,
+    get_due_subreddits,
+    update_subreddit_fetch,
+)
 
 
 setup_logging()
@@ -30,82 +36,100 @@ def _parse_subreddits(raw: str) -> list[str]:
 
 
 def run_daily(dry_run: bool = False) -> None:
-    subreddits = _parse_subreddits(settings.subreddits)
-    logger.info("Starting daily ingestion for subreddits: %s", ", ".join(subreddits))
     started_at = dt.datetime.now(tz=timezone.utc)
-
     reddit = RedditClient()
     total_fetched = 0
     total_relevant = 0
     total_posts_inserted = 0
     total_faqs_inserted = 0
-    per_sub_counts: dict[str, dict[str, int]] = {}
+    per_sub_counts: dict[str, dict[str, object]] = {}
+    run_status = "success"
+    error_message: Optional[str] = None
 
     try:
         with session_scope() as session:
-            for sub in subreddits:
-                fetched_posts = reddit.fetch_new_posts(subreddit=sub, limit=100)
-                total_fetched += len(fetched_posts)
-                relevant_posts = []
-                for p in fetched_posts:
-                    text = f"{p.get('title','')}\n{p.get('body','')}"
-                    if is_nil_relevant(text):
-                        # Normalize created_utc to aware datetime
-                        ts = float(p.get("created_utc") or 0.0)
-                        created = dt.datetime.fromtimestamp(ts, tz=timezone.utc) if ts else None
-                        relevant_posts.append(
+            tracked = get_due_subreddits(session, now=started_at)
+            if not tracked:
+                logger.info("No subreddits due for polling. Skipping run.")
+                run_status = "skipped"
+            else:
+                logger.info("Polling %d subreddit(s)", len(tracked))
+                for sub in tracked:
+                    keywords = sub.keywords or list(DEFAULT_KEYWORDS)
+                    fetched_posts = reddit.fetch_new_posts(subreddit=sub.name, limit=100)
+                    total_fetched += len(fetched_posts)
+
+                    relevant_posts = []
+                    for p in fetched_posts:
+                        text = f"{p.get('title','')}\n{p.get('body','')}"
+                        if is_nil_relevant(text, keywords):
+                            ts = float(p.get("created_utc") or 0.0)
+                            created = dt.datetime.fromtimestamp(ts, tz=timezone.utc) if ts else None
+                            relevant_posts.append(
+                                {
+                                    "id": p.get("id"),
+                                    "subreddit": p.get("subreddit"),
+                                    "author": p.get("author"),
+                                    "title": p.get("title"),
+                                    "body": p.get("body"),
+                                    "score": p.get("score"),
+                                    "url": p.get("url"),
+                                    "created_utc": created,
+                                    "metadata": None,
+                                }
+                            )
+
+                    total_relevant += len(relevant_posts)
+
+                    if not dry_run and relevant_posts:
+                        inserted, _ = upsert_raw_posts(session, relevant_posts)
+                        total_posts_inserted += inserted
+
+                        faq_objs = extract_faqs(relevant_posts)
+                        faq_rows = [
                             {
-                                "id": p.get("id"),
-                                "subreddit": p.get("subreddit"),
-                                "author": p.get("author"),
-                                "title": p.get("title"),
-                                "body": p.get("body"),
-                                "score": p.get("score"),
-                                "url": p.get("url"),
-                                "created_utc": created,
+                                "question": f.question,
+                                "answer": f.answer,
+                                "source_post_id": f.source_post_id,
+                                "created_utc": None,
+                                "updated_at": dt.datetime.now(tz=timezone.utc),
+                                "tags": [],
+                                "confidence": None,
                                 "metadata": None,
                             }
+                            for f in faq_objs
+                        ]
+                        ins_faqs, _ = upsert_faqs(session, faq_rows)
+                        total_faqs_inserted += ins_faqs
+
+                    per_sub_counts[sub.name] = {
+                        "fetched": len(fetched_posts),
+                        "relevant": len(relevant_posts),
+                        "keywords": list(keywords),
+                    }
+
+                    if not dry_run:
+                        latest_post_id = fetched_posts[0]["id"] if fetched_posts else None
+                        update_subreddit_fetch(
+                            session,
+                            subreddit_id=sub.id,
+                            fetched_at=dt.datetime.now(tz=timezone.utc),
+                            last_post_id=latest_post_id,
                         )
 
-                total_relevant += len(relevant_posts)
-
-                if not dry_run and relevant_posts:
-                    inserted, _ = upsert_raw_posts(session, relevant_posts)
-                    total_posts_inserted += inserted
-
-                    # Curate FAQs from relevant posts and insert
-                    faq_objs = extract_faqs(relevant_posts)
-                    faq_rows = [
-                        {
-                            "question": f.question,
-                            "answer": f.answer,
-                            "source_post_id": f.source_post_id,
-                            "created_utc": None,
-                            "updated_at": dt.datetime.now(tz=timezone.utc),
-                            "tags": [],
-                            "confidence": None,
-                            "metadata": None,
-                        }
-                        for f in faq_objs
-                    ]
-                    ins_faqs, _ = upsert_faqs(session, faq_rows)
-                    total_faqs_inserted += ins_faqs
-
-                per_sub_counts[sub] = {
-                    "fetched": len(fetched_posts),
-                    "relevant": len(relevant_posts),
-                }
-
     except Exception as e:
-        finished_at = dt.datetime.now(tz=timezone.utc)
+        run_status = "failed"
+        error_message = str(e)
         logger.exception("Ingestion failed: %s", e)
-        # Record failed run
+        raise
+    finally:
+        finished_at = dt.datetime.now(tz=timezone.utc)
         with session_scope() as session:
             record_ingestion_run(
                 session,
                 started_at=started_at,
                 finished_at=finished_at,
-                status="failed",
+                status=run_status,
                 counts={
                     "total_fetched": total_fetched,
                     "total_relevant": total_relevant,
@@ -113,33 +137,8 @@ def run_daily(dry_run: bool = False) -> None:
                     "total_inserted_faqs": total_faqs_inserted,
                     "per_subreddit": per_sub_counts,
                 },
-                error=str(e),
+                error=error_message,
             )
-        raise
-
-    finished_at = dt.datetime.now(tz=timezone.utc)
-    logger.info(
-        "Ingestion completed: fetched=%d relevant=%d posts_inserted=%d faqs_inserted=%d",
-        total_fetched,
-        total_relevant,
-        total_posts_inserted,
-        total_faqs_inserted,
-    )
-    # Record success run
-    with session_scope() as session:
-        record_ingestion_run(
-            session,
-            started_at=started_at,
-            finished_at=finished_at,
-            status="success",
-            counts={
-                "total_fetched": total_fetched,
-                "total_relevant": total_relevant,
-                "total_inserted_posts": total_posts_inserted,
-                "total_inserted_faqs": total_faqs_inserted,
-                "per_subreddit": per_sub_counts,
-            },
-        )
 
 
 def backfill(since: dt.date, dry_run: bool = False) -> None:
