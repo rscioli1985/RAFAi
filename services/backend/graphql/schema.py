@@ -45,7 +45,7 @@ class Query:
     job: JobType | None = strawberry.field(resolver=resolve_job, description="Fetch a single job by id.")
     jobs: list[JobType] = strawberry.field(
         resolver=resolve_jobs,
-        description="List jobs filtered by status/owner. Default limit=50.",
+        description="List jobs with optional filters, cursor pagination (after) and limit.",
     )
     job_results: JobResultType | None = strawberry.field(
         resolver=resolve_job_results, description="Fetch persisted outputs tied to a job."

@@ -133,4 +133,23 @@ pip install --upgrade pip setuptools wheel
 log "Installing Python requirements"
 pip install -r "$ROOT_DIR/requirements.txt"
 
+ENV_FILE="$ROOT_DIR/.env"
+SEED_SCRIPT="$ROOT_DIR/scripts/bootstrapping/run-seeds.sh"
+
+if [[ ! -f "$ENV_FILE" && -f "$ROOT_DIR/.env.example" ]]; then
+  log "Creating .env from template"
+  cp "$ROOT_DIR/.env.example" "$ENV_FILE"
+  log "Populate secrets in $ENV_FILE as needed."
+elif [[ ! -f "$ENV_FILE" ]]; then
+  log "Warning: .env not found and no .env.example template available."
+fi
+
+log "Bootstrapping database + seed data"
+if [[ -x "$SEED_SCRIPT" ]]; then
+  "$SEED_SCRIPT"
+else
+  echo "[quickstart] Seed script not found at $SEED_SCRIPT" >&2
+  exit 1
+fi
+
 log "Environment ready. Activate later with: source \"$VENV_DIR/bin/activate\""

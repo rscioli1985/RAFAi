@@ -37,8 +37,10 @@ Deliver a production-ready orchestration layer where the FastAPI GraphQL control
 3. Enforce authZ per organization/user; integrate with existing FastAPI dependency stack.
 4. Return structured errors + status transitions; add unit/integration tests using mocked Airflow responses.
 5. Add feature flags for new mutations to allow phased rollout.
+6. **Status:** `jobs` query now supports structured filters + cursor pagination (`JobFilterInput`, `after` cursor) so UI can page through history without bespoke SQL.
 
 ### 4.4 Airflow DAG Implementation (supports M2)
+> Implementation note: initial DAG scaffolding for `reddit_ingest`, `analysis_enrich`, and `embedding_generate` now lives under `airflow_dags/dags/` along with shared job utilities.
 1. Build DAG scaffolding with shared libraries for config parsing, logging, and DB access.
 2. `reddit_ingest` DAG tasks: subreddit fetch, comment expansion, normalization, persistence. Include rate-limit pools + exponential backoff.
 3. `analysis_enrich` DAG tasks: fetch posts, batch LLM prompts, persist analysis outputs with job relationships.
@@ -47,15 +49,15 @@ Deliver a production-ready orchestration layer where the FastAPI GraphQL control
 6. Add automated tests (unit tests for operators, DAG validation tests) + sample data fixtures.
 
 ### 4.5 Observability & Operations (supports M3)
-1. Build reconciliation worker/service to poll Airflow `/dagRuns`, reconcile into `jobs` + `job_events` (handles drift, retries).
-2. Emit Prometheus metrics (`jobs_submitted`, `task_failures`, `reddit_rate_limit_hits`, `llm_tokens_consumed`).
+1. Build reconciliation worker/service to poll Airflow `/dagRuns`, reconcile into `jobs` + `job_events` (handles drift, retries). **Status:** initial CLI worker lives in `services/backend/orchestration/reconciler.py` and can be run via `./scripts/run-reconciler.sh`.
+2. Emit Prometheus metrics (`jobs_submitted`, `task_failures`, `reddit_rate_limit_hits`, `llm_tokens_consumed`). **Status:** `/metrics` now emits job lifecycle + Reddit rate-limit + LLM token counters; Prometheus docker-compose + config lives in `infra/monitoring/` for local scraping.
 3. Configure Grafana dashboards + PagerDuty alerts (backlog, repeated failures, spend caps).
 4. Centralize structured logging (Airflow → ELK/CloudWatch) with correlation IDs passed from GraphQL.
 5. Document runbooks: DAG failure, API failure, credential rotation, backfill workflow.
 
 ### 4.6 Security & Compliance (supports M3 → M4)
 1. Implement request throttles and payload guards in GraphQL (max subreddit count, keyword length).
-2. Ensure Reddit data sanitation prior to LLM tasks; add automated checks for PII stripping.
+2. Ensure Reddit data sanitation prior to LLM tasks; add automated checks for PII stripping. **Status:** DAGs call a shared `sanitize_text` helper to strip emails/user handles before persistence/LLM enrichment; extend with automated validation.
 3. Enforce LLM budget checks per organization before enqueuing tasks; add alerts for budget exhaustion.
 4. Conduct threat model + security review; confirm least-privilege roles for Airflow workers.
 

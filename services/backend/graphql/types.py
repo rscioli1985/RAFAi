@@ -432,3 +432,11 @@ class RunScrapeInput:
     depth: Optional[int] = 100
     priority: Optional[int] = 0
     backfill_days: Optional[int] = None
+
+
+@strawberry.input
+class JobFilterInput:
+    status: Optional[JobStatusEnum] = None
+    owner_id: Optional[strawberry.ID] = None
+    job_type: Optional[JobKindEnum] = None
+    organization_id: Optional[strawberry.ID] = None

@@ -1,0 +1,31 @@
+services:
+  airflow:
+    build:
+      context: ../..
+      dockerfile: infra/airflow/Dockerfile
+    container_name: nilrag-airflow
+    restart: unless-stopped
+    environment:
+      AIRFLOW__CORE__EXECUTOR: SequentialExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/nilrag/airflow_dags/dags
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_WEBSERVER_SECRET_KEY:-dev-secret-key}
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-Qr8Dj0h8v6Q+dummyfernetkeypkC6qO8FAXYw=}
+      AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
+      AIRFLOW__WEBSERVER__RBAC: "True"
+      AIRFLOW__CORE__DAG_CONCURRENCY: 2
+      AIRFLOW__CORE__PARALLELISM: 2
+      AIRFLOW__SCHEDULER__MAX_TIS_PER_QUERY: 4
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://app:app@host.docker.internal:5432/nilrag}
+      PYTHONPATH: /opt/nilrag
+    env_file:
+      - .env
+    volumes:
+      - ../..:/opt/nilrag
+      - airflow_home:/opt/airflow
+    ports:
+      - "8080:8080"
+    command: ["standalone"]
+
+volumes:
+  airflow_home:

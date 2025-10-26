@@ -1,0 +1,13 @@
+services:
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: nilrag-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+
+# Launch with: docker compose -f infra/monitoring/docker-compose.yml up -d

@@ -80,6 +80,48 @@ class AirflowClient:
             raise AirflowClientError("Airflow response missing dag_run_id")
         return run_id
 
+    def get_dag_run(self, dag_id: str, dag_run_id: str) -> Dict[str, Any]:
+        """Fetch metadata about a specific dag run."""
+
+        if self.mock_mode:
+            return {
+                "dag_id": dag_id,
+                "dag_run_id": dag_run_id,
+                "state": "success",
+                "start_date": None,
+                "end_date": None,
+            }
+
+        url = f"{self._dag_run_url(dag_id)}/{dag_run_id}"
+        headers = {"Accept": "application/json"}
+        if self.api_token:
+            headers["Authorization"] = f"Bearer {self.api_token}"
+
+        auth: Optional[Tuple[str, str]] = None
+        if self.username and self.password:
+            auth = (self.username, self.password)
+
+        try:
+            response = httpx.get(
+                url,
+                headers=headers,
+                auth=auth,
+                timeout=self.timeout,
+                verify=self.verify_ssl,
+            )
+        except httpx.HTTPError as exc:
+            raise AirflowClientError(f"Failed to fetch dag run {dag_run_id}: {exc}") from exc
+
+        if response.status_code == 404:
+            raise AirflowClientError(f"DAG run {dag_run_id} not found for DAG {dag_id}")
+
+        if response.status_code >= 300:
+            raise AirflowClientError(
+                f"Airflow responded with {response.status_code} for dag run {dag_run_id}: {response.text}"
+            )
+
+        return response.json()
+
     def _dag_run_url(self, dag_id: str) -> str:
         base = self.base_url.rstrip("/")
         if not base.endswith("/api/v1"):

@@ -9,6 +9,8 @@ ROOT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SETUP_DIR="$ROOT_DIR/scripts/setup"
 DB_INIT_SCRIPT="$SETUP_DIR/db-init.sh"
 SEED_DIR="$ROOT_DIR/scripts/bootstrapping/py"
+AIRFLOW_ENV="$ROOT_DIR/infra/airflow/.env"
+AIRFLOW_ENV_EXAMPLE="$ROOT_DIR/infra/airflow/.env.example"
 
 ADMIN_EMAIL="${ADMIN_EMAIL:-admin@goanalog.com}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-password}"
@@ -49,6 +51,12 @@ ensure_python
 
 log "Initializing database (containers + migrations)..."
 bash "$DB_INIT_SCRIPT"
+
+if [[ ! -f "$AIRFLOW_ENV" && -f "$AIRFLOW_ENV_EXAMPLE" ]]; then
+  log "Preparing Airflow env file from template"
+  cp "$AIRFLOW_ENV_EXAMPLE" "$AIRFLOW_ENV"
+  log "Update $AIRFLOW_ENV with real secrets before running ./scripts/run-airflow.sh"
+fi
 
 log "Seeding user $ADMIN_EMAIL"
 "$PYTHON_BIN" "$SEED_DIR/seed_user.py" \

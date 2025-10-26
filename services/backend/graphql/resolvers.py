@@ -5,13 +5,20 @@ from datetime import datetime
 from typing import List, Optional
 
 import strawberry
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session, joinedload
 
 from services.backend.models import Job, JobEvent, Organization, User
 from services.backend.orchestration import AirflowClientError
+from services.common.metrics import (
+    record_job_canceled,
+    record_job_failed,
+    record_job_submitted,
+)
 
 from .types import (
     JobEntityFilter,
+    JobFilterInput,
     JobResultType,
     JobStatusEnum,
     JobType,
@@ -68,18 +75,44 @@ def resolve_job(info, id: strawberry.ID) -> Optional[JobType]:
 
 def resolve_jobs(
     info,
-    status: Optional[JobStatusEnum] = None,
+    filter: Optional[JobFilterInput] = None,
     limit: int = 50,
-    owner_id: Optional[strawberry.ID] = None,
+    after: Optional[strawberry.ID] = None,
 ) -> List[JobType]:
     session: Session = info.context.session
-    query = session.query(Job).options(joinedload(Job.events)).order_by(Job.created_at.desc())
-    if status:
-        query = query.filter(Job.status == status.value)
-    if owner_id:
-        owner_uuid = _parse_uuid(owner_id)
-        if owner_uuid:
-            query = query.filter(Job.owner_user_id == owner_uuid)
+    limit = max(1, min(limit, 200))
+    query = session.query(Job).options(joinedload(Job.events)).order_by(Job.created_at.desc(), Job.id.desc())
+
+    if filter:
+        if filter.status:
+            query = query.filter(Job.status == filter.status.value)
+        if filter.job_type:
+            query = query.filter(Job.type == filter.job_type.value)
+        if filter.owner_id:
+            owner_uuid = _parse_uuid(filter.owner_id)
+            if owner_uuid:
+                query = query.filter(Job.owner_user_id == owner_uuid)
+        if filter.organization_id:
+            org_uuid = _parse_uuid(filter.organization_id)
+            if org_uuid:
+                query = query.filter(Job.organization_id == org_uuid)
+
+    if after:
+        cursor_uuid = _parse_uuid(after)
+        if cursor_uuid:
+            cursor = (
+                session.query(Job.created_at, Job.id)
+                .filter(Job.id == cursor_uuid)
+                .first()
+            )
+            if cursor:
+                query = query.filter(
+                    or_(
+                        Job.created_at < cursor.created_at,
+                        and_(Job.created_at == cursor.created_at, Job.id < cursor.id),
+                    )
+                )
+
     jobs = query.limit(limit).all()
     return [JobType.from_model(job) for job in jobs]
 
@@ -186,6 +219,7 @@ def cancel_job_mutation(info, job_id: strawberry.ID) -> JobType:
     job.status = JobStatusEnum.canceled.value
     job.completed_at = datetime.utcnow()
     job.events.append(JobEvent(state="canceled", message="Canceled via GraphQL"))
+    record_job_canceled(job.type)
     return JobType.from_model(job)
 
 
@@ -213,6 +247,7 @@ def _enqueue_job(
     session.add(job)
     session.flush()
     job.events.append(JobEvent(state="created", message=description))
+    record_job_submitted(job_type)
 
     payload = {**conf, "job_id": str(job.id)}
 
@@ -222,6 +257,7 @@ def _enqueue_job(
         job.status = JobStatusEnum.failed.value
         job.error = str(exc)
         job.events.append(JobEvent(state="failed", message=str(exc)))
+        record_job_failed(job_type)
         raise
 
     job.status = JobStatusEnum.queued.value

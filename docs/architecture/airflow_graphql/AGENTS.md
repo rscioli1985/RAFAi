@@ -7,6 +7,7 @@ Welcome! This directory captures every artifact needed to implement and maintain
 - `development-plan/development_plan.md`: Execution blueprint with milestones, workstreams, dependencies, risks, and deliverables. Use it to plan sprints, update status, or derive tickets.
 - `development-plan/development-plan-propmt.md`: Original generation prompt; keep it untouched as provenance for future revisions.
 - `input.md`: Initial request context for Codex; useful when regenerating docs or confirming intent.
+- `../../airflow_dags/`: Source-controlled DAGs plus helpers referenced in the plan (see `airflow_dags/README.md` for usage).
 
 ## How To Consume
 1. **Align on intent**: Start with the PRD to confirm objectives, architecture, and settled decisions. Capture any new assumptions in the PRD’s Decisions section before coding.
